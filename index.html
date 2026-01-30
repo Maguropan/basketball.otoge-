@@ -519,13 +519,20 @@
         class Note {
             constructor(time, type) {
                 this.time = time;
-                this.type = type;
+                this.type = type; // 'left', 'right', 'power-left', 'power-right', 'leg-through', 'back-change'
                 this.hit = false;
                 this.missed = false;
                 this.x = canvas.width;
-                this.yRatio = type === 'left' ? 0.4 : 0.6; // 相対値で保存
-                this.radius = 30;
+                this.yRatio = 0.5; // 全て中央レーンに統一
                 this.speed = 300;
+                this.showArrow = true; // デフォルトはtrue（generatePatternで上書き）
+                
+                // タイプに応じて半径を設定
+                if (type.includes('power')) {
+                    this.radius = 40; // 大きめ
+                } else {
+                    this.radius = 30;
+                }
             }
             
             update(currentTime, deltaTime) {
@@ -533,22 +540,46 @@
                 this.x = canvas.width * 0.7 + (timeUntilHit * this.speed);
             }
             
+            getBaseType() {
+                // 基本タイプを取得（left or right）
+                if (this.type.includes('left') || this.type === 'leg-through' || this.type === 'back-change') {
+                    return 'left';
+                }
+                return 'right';
+            }
+            
             draw() {
                 if (this.hit || this.missed) return;
                 
-                const y = canvas.height * this.yRatio; // 描画時に計算
+                const y = canvas.height * this.yRatio;
                 
                 ctx.save();
                 
                 // Glow effect
                 const gradient = ctx.createRadialGradient(this.x, y, 0, this.x, y, this.radius * 1.5);
-                if (this.type === 'left') {
-                    gradient.addColorStop(0, 'rgba(0, 78, 137, 0.8)');
-                    gradient.addColorStop(1, 'rgba(0, 78, 137, 0)');
+                
+                // タイプ別の色設定
+                let color1, color2;
+                if (this.type === 'leg-through') {
+                    // レッグスルー：紫系
+                    color1 = 'rgba(138, 43, 226, 0.8)';
+                    color2 = 'rgba(138, 43, 226, 0)';
+                } else if (this.type === 'back-change') {
+                    // バックチェンジ：緑系
+                    color1 = 'rgba(34, 197, 94, 0.8)';
+                    color2 = 'rgba(34, 197, 94, 0)';
+                } else if (this.getBaseType() === 'left') {
+                    // 左系：青
+                    color1 = 'rgba(0, 78, 137, 0.8)';
+                    color2 = 'rgba(0, 78, 137, 0)';
                 } else {
-                    gradient.addColorStop(0, 'rgba(255, 107, 53, 0.8)');
-                    gradient.addColorStop(1, 'rgba(255, 107, 53, 0)');
+                    // 右系：オレンジ
+                    color1 = 'rgba(255, 107, 53, 0.8)';
+                    color2 = 'rgba(255, 107, 53, 0)';
                 }
+                
+                gradient.addColorStop(0, color1);
+                gradient.addColorStop(1, color2);
                 ctx.fillStyle = gradient;
                 ctx.fillRect(this.x - this.radius * 1.5, y - this.radius * 1.5, 
                            this.radius * 3, this.radius * 3);
@@ -556,18 +587,45 @@
                 // Note circle
                 ctx.beginPath();
                 ctx.arc(this.x, y, this.radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.type === 'left' ? '#004E89' : '#FF6B35';
+                
+                if (this.type === 'leg-through') {
+                    ctx.fillStyle = '#8B2BE2'; // 紫
+                } else if (this.type === 'back-change') {
+                    ctx.fillStyle = '#22C55E'; // 緑
+                } else if (this.getBaseType() === 'left') {
+                    ctx.fillStyle = '#004E89'; // 青
+                } else {
+                    ctx.fillStyle = '#FF6B35'; // オレンジ
+                }
+                
                 ctx.fill();
                 ctx.strokeStyle = '#FFD23F';
-                ctx.lineWidth = 3;
+                ctx.lineWidth = this.type.includes('power') ? 4 : 3;
                 ctx.stroke();
                 
-                // Arrow
-                ctx.fillStyle = '#fff';
-                ctx.font = 'bold 30px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(this.type === 'left' ? '←' : '→', this.x, y);
+                // Arrow (切り替わる時だけ表示)
+                if (this.showArrow) {
+                    ctx.fillStyle = '#fff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    
+                    let arrow;
+                    if (this.type === 'leg-through') {
+                        // レッグスルー：両矢印
+                        ctx.font = 'bold 28px Arial';
+                        arrow = '⇄';
+                    } else if (this.type === 'back-change') {
+                        // バックチェンジ：カーブ矢印
+                        ctx.font = 'bold 28px Arial';
+                        arrow = this.getBaseType() === 'left' ? '↩' : '↪';
+                    } else {
+                        // 通常：左右矢印
+                        ctx.font = 'bold 30px Arial';
+                        arrow = this.getBaseType() === 'left' ? '←' : '→';
+                    }
+                    
+                    ctx.fillText(arrow, this.x, y);
+                }
                 
                 ctx.restore();
             }
@@ -578,22 +636,61 @@
             const notes = [];
             const beatDuration = 60 / bpm;
             
-            let density;
+            let density, specialChance;
             switch(difficulty) {
                 case 'easy':
                     density = 2;
+                    specialChance = 0.1; // 10%で特殊
                     break;
                 case 'normal':
                     density = 1;
+                    specialChance = 0.2; // 20%で特殊
                     break;
                 case 'hard':
                     density = 0.5;
+                    specialChance = 0.3; // 30%で特殊
                     break;
             }
             
+            let prevType = null;
+            let prevBaseType = null;
+            
             for (let t = 3; t < duration - 2; t += beatDuration * density) {
-                const type = Math.random() > 0.5 ? 'left' : 'right';
-                notes.push(new Note(t, type));
+                let type;
+                const rand = Math.random();
+                
+                // 特殊技の判定
+                if (rand < specialChance) {
+                    const specialRand = Math.random();
+                    if (specialRand < 0.33) {
+                        // パワードリブル（左右ランダム）
+                        type = Math.random() > 0.5 ? 'power-left' : 'power-right';
+                    } else if (specialRand < 0.66) {
+                        // レッグスルー
+                        type = 'leg-through';
+                    } else {
+                        // バックチェンジ
+                        type = 'back-change';
+                    }
+                } else {
+                    // 通常ドリブル
+                    type = Math.random() > 0.5 ? 'left' : 'right';
+                }
+                
+                const note = new Note(t, type);
+                
+                // 基本タイプを取得
+                const baseType = note.getBaseType();
+                
+                // 前のノートと基本タイプが異なる場合、またはタイプが特殊な場合に矢印表示
+                note.showArrow = (prevBaseType !== baseType) || 
+                                 type === 'leg-through' || 
+                                 type === 'back-change';
+                
+                prevType = type;
+                prevBaseType = baseType;
+                
+                notes.push(note);
             }
             
             return notes;
@@ -603,25 +700,14 @@
         function drawJudgeLine() {
             const x = canvas.width * 0.35; // 中央寄り
             
-            // Left lane
+            // Single center lane
             ctx.save();
-            ctx.strokeStyle = '#004E89';
+            ctx.strokeStyle = '#FFD23F';
             ctx.lineWidth = 4;
             ctx.setLineDash([10, 5]);
             ctx.beginPath();
-            ctx.moveTo(0, canvas.height * 0.4);
-            ctx.lineTo(canvas.width, canvas.height * 0.4);
-            ctx.stroke();
-            ctx.restore();
-            
-            // Right lane
-            ctx.save();
-            ctx.strokeStyle = '#FF6B35';
-            ctx.lineWidth = 4;
-            ctx.setLineDash([10, 5]);
-            ctx.beginPath();
-            ctx.moveTo(0, canvas.height * 0.6);
-            ctx.lineTo(canvas.width, canvas.height * 0.6);
+            ctx.moveTo(0, canvas.height * 0.5);
+            ctx.lineTo(canvas.width, canvas.height * 0.5);
             ctx.stroke();
             ctx.restore();
             
@@ -632,19 +718,17 @@
             ctx.shadowBlur = 20;
             ctx.shadowColor = '#FFD23F';
             ctx.beginPath();
-            ctx.moveTo(x, canvas.height * 0.3);
-            ctx.lineTo(x, canvas.height * 0.7);
+            ctx.moveTo(x, canvas.height * 0.4);
+            ctx.lineTo(x, canvas.height * 0.6);
             ctx.stroke();
             ctx.restore();
             
-            // Judge circles
-            [0.4, 0.6].forEach(yPos => {
-                ctx.beginPath();
-                ctx.arc(x, canvas.height * yPos, 35, 0, Math.PI * 2);
-                ctx.strokeStyle = '#FFD23F';
-                ctx.lineWidth = 4;
-                ctx.stroke();
-            });
+            // Judge circle (single center circle)
+            ctx.beginPath();
+            ctx.arc(x, canvas.height * 0.5, 35, 0, Math.PI * 2);
+            ctx.strokeStyle = '#FFD23F';
+            ctx.lineWidth = 4;
+            ctx.stroke();
         }
         
         // Draw judgment text
@@ -691,7 +775,10 @@
             let bestDistance = Infinity;
             
             for (let note of gameState.notes) {
-                if (note.hit || note.missed || note.type !== type) continue;
+                if (note.hit || note.missed) continue;
+                
+                // 基本タイプで判定（left or right）
+                if (note.getBaseType() !== type) continue;
                 
                 const distance = Math.abs(note.x - judgeX);
                 if (distance < bestDistance) {
@@ -702,9 +789,17 @@
             
             if (!bestNote) return false;
             
+            // スコアはタイプによって変動
+            let baseScore = 100;
+            if (bestNote.type.includes('power')) {
+                baseScore = 150; // パワーは高得点
+            } else if (bestNote.type === 'leg-through' || bestNote.type === 'back-change') {
+                baseScore = 200; // 特殊技はさらに高得点
+            }
+            
             if (bestDistance < perfectRange) {
                 bestNote.hit = true;
-                gameState.score += 100;
+                gameState.score += baseScore;
                 gameState.combo++;
                 gameState.perfect++;
                 showJudgment('PERFECT!', '#39FF14');
@@ -712,7 +807,7 @@
                 return true;
             } else if (bestDistance < goodRange) {
                 bestNote.hit = true;
-                gameState.score += 50;
+                gameState.score += Math.floor(baseScore * 0.5);
                 gameState.combo++;
                 gameState.good++;
                 showJudgment('GOOD', '#FFD23F');
