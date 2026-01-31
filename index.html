@@ -526,6 +526,7 @@
                 this.yRatio = 0.5; // 全て中央レーンに統一
                 this.speed = 300;
                 this.showArrow = true; // デフォルトはtrue（generatePatternで上書き）
+                this.baseType = null; // generatePatternで設定される
                 
                 // タイプに応じて半径を設定
                 if (type.includes('power')) {
@@ -541,8 +542,13 @@
             }
             
             getBaseType() {
+                // baseTypeが設定されていればそれを返す
+                if (this.baseType) {
+                    return this.baseType;
+                }
+                
                 // 基本タイプを取得（left or right）
-                if (this.type.includes('left') || this.type === 'leg-through' || this.type === 'back-change') {
+                if (this.type.includes('left')) {
                     return 'left';
                 }
                 return 'right';
@@ -662,15 +668,19 @@
                 // 特殊技の判定
                 if (rand < specialChance) {
                     const specialRand = Math.random();
-                    if (specialRand < 0.33) {
-                        // パワードリブル（左右ランダム）
-                        type = Math.random() > 0.5 ? 'power-left' : 'power-right';
-                    } else if (specialRand < 0.66) {
-                        // レッグスルー
-                        type = 'leg-through';
+                    if (specialRand < 0.5) {
+                        // レッグスルーまたはバックチェンジ（左右切り替え技）
+                        type = specialRand < 0.25 ? 'leg-through' : 'back-change';
                     } else {
-                        // バックチェンジ
-                        type = 'back-change';
+                        // パワードリブル（前と同じ方向）
+                        if (prevBaseType === 'left') {
+                            type = 'power-left';
+                        } else if (prevBaseType === 'right') {
+                            type = 'power-right';
+                        } else {
+                            // 最初のノートの場合
+                            type = Math.random() > 0.5 ? 'power-left' : 'power-right';
+                        }
                     }
                 } else {
                     // 通常ドリブル
@@ -680,12 +690,22 @@
                 const note = new Note(t, type);
                 
                 // 基本タイプを取得
-                const baseType = note.getBaseType();
+                let baseType;
+                if (type === 'leg-through' || type === 'back-change') {
+                    // 切り替え技の場合は前の逆
+                    baseType = prevBaseType === 'left' ? 'right' : 'left';
+                } else {
+                    baseType = note.getBaseType();
+                }
+                
+                // noteにbaseTypeを設定
+                note.baseType = baseType;
                 
                 // 前のノートと基本タイプが異なる場合、またはタイプが特殊な場合に矢印表示
                 note.showArrow = (prevBaseType !== baseType) || 
                                  type === 'leg-through' || 
-                                 type === 'back-change';
+                                 type === 'back-change' ||
+                                 type.includes('power');
                 
                 prevType = type;
                 prevBaseType = baseType;
